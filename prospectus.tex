@@ -1,0 +1,84 @@
+\documentclass{article}
+\usepackage[top=.5in, bottom=.5in, left=.9in, right=.9in]{geometry}
+\usepackage[latin1]{inputenc}
+\usepackage{enumerate}
+\usepackage{hyperref}
+\usepackage{graphics}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{tabularx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{siunitx}
+\usepackage{mathtools}
+
+\usepackage[authoryear,round]{natbib}
+
+\newcommand{\obar}[1]{\ensuremath{\overline{ #1 }}}
+\newcommand{\iid}{\ensuremath{\stackrel{\textrm{iid}}{\sim}}}
+\newcommand{\op}[2]{{\ensuremath{\underset{ #2 }{\operatorname{ #1 }}~}}}
+\newcommand{\norm}[1]{{ \ensuremath{ \left\lVert  #1 \right\rVert  }  }}
+
+\usepackage{xcolor}
+\definecolor{darkgreen}{rgb}{0,0.25,0}
+\newcommand{\soln}{{\color{red}\textbf{Solution:~}\color{black}}}
+
+
+\usepackage[formats]{listings}
+\lstdefineformat{R}{~={\( \sim \)}}
+\lstset{% general command to set parameter(s)
+basicstyle=\small\ttfamily, % print whole listing small
+keywordstyle=\bfseries\rmfamily,
+keepspaces=true,
+% underlined bold black keywords
+commentstyle=\color{darkgreen}, % white comments
+stringstyle=\ttfamily, % typewriter type for strings
+showstringspaces=false,
+numbers=left, numberstyle=\tiny, stepnumber=1, numbersep=5pt, %
+frame=shadowbox,
+rulesepcolor=\color{black},
+,columns=fullflexible,format=R
+} %
+\renewcommand{\ttdefault}{cmtt}
+% enumerate is numbered \begin{enumerate}[(I)] is cap roman in parens
+% itemize is bulleted \begin{itemize}
+% subfigures:
+% \begin{subfigure}[b]{0.5\textwidth} \includegraphics{asdf.jpg} \caption{} \label{subfig:asdf} \end{subfigure}
+\hypersetup{colorlinks=true, urlcolor=blue, linkcolor=blue, citecolor=red}
+
+
+\graphicspath{ {C:/Users/Evan/Desktop/} }
+\title{\vspace{-6ex}Final Project Prospectus\vspace{-2ex}}
+\author{Evan Ott and Raghav Shroff\vspace{-2ex}}
+%\date{DATE}
+\setcounter{secnumdepth}{0}
+\usepackage[parfill]{parskip}
+
+
+
+\begin{document}
+\maketitle
+
+\section{Problem set-up}
+The human microbiome underscores an important role in human health, often producing a disease phenotype when disrupted or during compositional changes. We seek to further understand the genetic changes within the microbiome in response to the development of periodontal disease. We will fit a statistical model to delineate control and diseased microbiomes and identify potential markers for periodontal disease. 
+
+The data we will use comprises of 6 patients with stratified control and diseased samples within each patient (i.e. one set of gums developed periodontal disease while the other set did not). Data was collected at least two time points for each patient, for a total of 27 data points.
+
+For this project, we will incorporate the following types of data:
+\begin{enumerate}[(1)]
+\item Gene expression data aligned to the human oral microbiome (463 individual genomes) from RNA-seq (raw read counts per gene)
+\item Abundance of each microbiome species obtained from 16S sequencing (raw read counts per species)
+\item Gingival crevicular fluid cytokine analysis providing the immunological response elicited in each patient (protein level expressed as pg/ml)
+\item Clinical scoring of each data point to indicate extent of periodontal disease (scale of 1 to 5)
+
+Using this data, we plan to use a logistic regression model to predict: a) control/disease and b) clinical scoring of the individuals given the gene expression data. The gene expression data is extremely sparse: there are approximately 180,000 metabolic genes (the subset of interest) and each sample has on average 40,000 present.
+
+There are some interesting additional components to the model in this example. Each person in the study has data represented at least four times (each set of gums, measured twice or more), so we would certainly expect their samples
+to be correlated with one another. Additionally, we have two sets of response variables: 1) the ground truth for each set of gums in terms of being the control or treatment and 2) the 
+
+
+%\bibliographystyle{plainnat}
+%\bibliography{references_filename_without_extension}
+
+\end{document}
