@@ -1,4 +1,5 @@
 # LaTeX files
+*.dvi
 *.aux
 *.fdb_latexmk
 *.fls
