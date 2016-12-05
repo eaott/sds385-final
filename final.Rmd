@@ -1,0 +1,176 @@
+---
+title: "Final Project"
+author: "Evan Ott"
+date: "December 5, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Stochastic Gradient Descent (Logistic Regression)
+
+Let's load in the data and Dr. Scott's algorithm:
+```{r readdata}
+library(Matrix)
+library(Rcpp)
+library(RcppEigen)
+
+Rcpp::sourceCpp("scott_sgdlogit.cpp")
+
+raw_data = read.csv("master.csv", header = TRUE)
+
+# Read specific columns from the data
+
+kegg = as.character(raw_data[ , 1])
+gene = as.character(raw_data[ , 2])
+
+data = raw_data[ , 3:ncol(raw_data)]
+
+N = ncol(data)
+P = nrow(data)
+M = rep(1, N) # Used in logistic regression
+
+# For C++ code, it's easiest to use a sparse matrix
+# TODO: might want to consider scaling the counts, either in the way DESeq2 does
+# it or something similar.
+X = Matrix(as.matrix(unname(data)), sparse = TRUE)
+
+# Convert the column names to 0 = control, 1 = treatment
+Ynames = names(data)
+Y = stringi::stri_endswith(Ynames, fixed = "T") * 1
+```
+
+Now, let's run the code and see what happens.
+
+```{r sgd}
+# Initial guess for the betas.
+beta_init = rep(0, P)
+# For the weighting in the skip scenario for a feature
+# TODO: algorithm is very sensitive to this value
+eta = 0.0002
+# passes through the data
+nIter = 100
+# L1 regularization
+# TODO: need cross-validation or other way to choose lambda.
+# Right now, using manual value by eye (BAD practice)
+lambda = 1200.0
+# exponentially-weighted moving average factor
+# TODO: could explore other values.
+discount = 0.01
+
+
+# X[i, j] == data[i, j] is non-negative, so this trims out the genes with no counts
+X_nozero = X[which(rowSums(data) > 0), ]
+# Run the algorithm
+result = sparsesgd_logit(X_nozero, Y, M, eta, nIter, beta_init, lambda, discount)
+```
+
+```{r sgd-outputs, echo=FALSE, collapse=TRUE}
+print(paste("How many genes are in the final model? ", sum(result$beta != 0)))
+print(paste("Which genes?", paste(gene[which(result$beta != 0)], collapse = "\n")))
+plot(result$nll_tracker)
+```
+
+#DESeq2
+Now, let's use a pre-fabricated solution instead. I've included the code here to do the parallel execution, but I think RMarkdown will actually only run in one thread because reasons. Maybe.
+```{r deseq2-run}
+library(DESeq2)
+library(BiocParallel)
+# Allow for parallelization of DESeq2 code.
+register(MulticoreParam(4))
+
+# Get the counts
+count_data_raw = raw_data[ , 3:ncol(raw_data)]
+
+########################################
+#  Format the data in the way DESeq2 expects
+########################################
+new_colnames = rep(NULL, N)
+condition = rep(NULL, N)
+control = 0
+treatment = 0
+for (i in 1:N) {
+  base = c("control", "treatment")[Y[i] + 1]
+  val = 0
+  if (base == "control") {
+    control = control + 1
+    val = control
+  } else {
+    treatment = treatment + 1
+    val = treatment
+  }
+  new_colnames[i] = paste0(base, val)
+  condition[i] = base
+}
+count_data = count_data_raw
+colnames(count_data) = new_colnames
+rownames(count_data) = gene
+
+col_data = data.frame(condition)
+rownames(col_data) = new_colnames
+
+# Run DESeq2
+dds = DESeqDataSetFromMatrix(countData = count_data,
+                             colData = col_data,
+                             design = ~ condition)
+dds = DESeq(dds, parallel = TRUE)
+res = results(dds, parallel = TRUE)
+
+# plot(sort(res$pvalue))
+# points(sort(res$padj), col = "red")
+# P - sum(is.na(res$pvalue))
+# P - sum(is.na(res$padj))
+
+```
+
+
+```{r default-deseq2, echo=FALSE}
+print(paste("How many genes in default DESeq2?", paste(sort(gene[which(res$padj < 0.1)]), collapse = "\n"))) # 50 genes here
+```
+
+```{r deseq2-process}
+# Not exactly sure what this plot does either.
+# plotMA(res, main="DESeq2", ylim=c(-3,3))
+
+# Benjamini-Hochberg by hand (DESeq2 does something similar...)
+alpha = 0.1
+sorted_pval = sort(res$pvalue, na.last = TRUE)
+numNA = sum(is.na(res$pvalue))
+bh = sapply(1:P, function(i){ sorted_pval[i] <= alpha * (i + 1) / (P - numNA)})
+threshold = sorted_pval[max(which(bh))]
+```
+
+```{r deseq2-bh, echo=FALSE}
+print(paste("How many genes in customized Benjamini-Hochberg procedure",
+            paste(sort(gene[which(res$pvalue < threshold)]), collapse="\n"))) # 4 genes here
+```
+
+```{r deseq2-checking}
+# These two are equal -- throws out genes that were never observed section 1.5.3 of DESeq2 paper
+print(paste(sum(rowSums(count_data) == 0),
+            sum(is.na(res$pvalue))))
+
+# 111675 genes are thrown out by the "independent filtering" for having a low
+# mean normalized count
+sum(is.na(res$padj)) - sum(is.na(res$pvalue))
+
+# Not entirely sure what this plot means.
+# plot(metadata(res)$filterNumRej,
+#      type = "b", ylab = "number of rejections",
+#      xlab = "quantiles of filter")
+# lines(metadata(res)$lo.fit, col = "red")
+# abline(v = metadata(res)$filterTheta)
+
+#nofilter
+# If you turn off the filtering, only two of the adjusted p-values are less than 0.1
+# where the adjustment basically just accounts for Benjamini-Hochberg, I think
+resNoFilt <- results(dds, independentFiltering = FALSE)
+addmargins(table(filtering = (res$padj < .1),
+                 noFiltering = (resNoFilt$padj < .1)))
+```
+
+```{r deseq2-custom-bh, echo=FALSE}
+print(paste("How many genes in customized Benjamini-Hochberg procedure",
+            paste(sort(gene[which(resNoFilt$padj < 0.1)]), collapse="\n"))) # 2 genes here
+```
