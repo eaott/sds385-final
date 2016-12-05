@@ -47,8 +47,8 @@ X_nozero = X[which(rowSums(data) > 0), ]
 # Run the algorithm
 result = sparsesgd_logit(X_nozero, Y, M, eta, nIter, beta_init, lambda, discount)
 
-print(paste("How many genes are in the final model? ", sum(result$beta != 0)))
-print(paste("Which genes?", paste(gene[which(result$beta != 0)], collapse = "\n")))
+cat(paste("How many genes are in the final model? ", sum(result$beta != 0)))
+cat(paste("Which genes?", paste(gene[which(result$beta != 0)], collapse = "\n"), sep = "\n"))
 plot(result$nll_tracker)
 
 
@@ -58,10 +58,6 @@ plot(result$nll_tracker)
 
 
 library(DESeq2)
-library(BiocParallel)
-# Allow for parallelization of DESeq2 code.
-register(MulticoreParam(4))
-
 # Get the counts
 count_data_raw = raw_data[ , 3:ncol(raw_data)]
 
@@ -94,17 +90,17 @@ rownames(col_data) = new_colnames
 
 # Run DESeq2
 dds = DESeqDataSetFromMatrix(countData = count_data,
-colData = col_data,
-design = ~ condition)
-dds = DESeq(dds, parallel = TRUE)
-res = results(dds, parallel = TRUE)
+                             colData = col_data,
+                             design = ~ condition)
+dds = DESeq(dds)
+res = results(dds)
 
 # plot(sort(res$pvalue))
 # points(sort(res$padj), col = "red")
 # P - sum(is.na(res$pvalue))
 # P - sum(is.na(res$padj))
 
-print(paste("How many genes in default DESeq2?", paste(sort(gene[which(res$padj < 0.1)]), collapse = "\n"))) # 50 genes here
+cat(paste("How many genes in default DESeq2?", paste(sort(gene[which(res$padj < 0.1)]), collapse = "\n"), sep="\n")) # 50 genes here
 
 # Not exactly sure what this plot does either.
 # plotMA(res, main="DESeq2", ylim=c(-3,3))
@@ -116,8 +112,8 @@ numNA = sum(is.na(res$pvalue))
 bh = sapply(1:P, function(i){ sorted_pval[i] <= alpha * (i + 1) / (P - numNA)})
 threshold = sorted_pval[max(which(bh))]
 
-print(paste("How many genes in customized Benjamini-Hochberg procedure",
-paste(sort(gene[which(res$pvalue < threshold)]), collapse="\n"))) # 4 genes here
+cat(paste("How many genes in customized Benjamini-Hochberg procedure",
+      paste(sort(gene[which(res$pvalue < threshold)]), collapse="\n"), sep="\n")) # 4 genes here
 
 # These two are equal -- throws out genes that were never observed section 1.5.3 of DESeq2 paper
 print(paste(sum(rowSums(count_data) == 0),
@@ -141,5 +137,5 @@ resNoFilt <- results(dds, independentFiltering = FALSE)
 addmargins(table(filtering = (res$padj < .1),
 noFiltering = (resNoFilt$padj < .1)))
 
-print(paste("How many genes in customized Benjamini-Hochberg procedure",
-paste(sort(gene[which(resNoFilt$padj < 0.1)]), collapse="\n"))) # 2 genes here
+cat(paste("How many genes in customized Benjamini-Hochberg procedure",
+paste(sort(gene[which(resNoFilt$padj < 0.1)]), collapse="\n"),sep="\n")) # 2 genes here

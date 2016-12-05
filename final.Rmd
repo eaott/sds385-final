@@ -67,18 +67,18 @@ result = sparsesgd_logit(X_nozero, Y, M, eta, nIter, beta_init, lambda, discount
 ```
 
 ```{r sgd-outputs, echo=FALSE, collapse=TRUE}
-print(paste("How many genes are in the final model? ", sum(result$beta != 0)))
-print(paste("Which genes?", paste(gene[which(result$beta != 0)], collapse = "\n")))
+cat(paste("How many genes are in the final model? ", sum(result$beta != 0)))
+cat(paste("Which genes?", paste(gene[which(result$beta != 0)], collapse = "\n"), sep = "\n"))
 plot(result$nll_tracker)
 ```
 
 #DESeq2
 Now, let's use a pre-fabricated solution instead. I've included the code here to do the parallel execution, but I think RMarkdown will actually only run in one thread because reasons. Maybe.
-```{r deseq2-run}
+```{r deseq2-run, message=FALSE, error=FALSE}
 library(DESeq2)
-library(BiocParallel)
+#library(BiocParallel)
 # Allow for parallelization of DESeq2 code.
-register(MulticoreParam(4))
+#register(MulticoreParam(4))
 
 # Get the counts
 count_data_raw = raw_data[ , 3:ncol(raw_data)]
@@ -114,8 +114,8 @@ rownames(col_data) = new_colnames
 dds = DESeqDataSetFromMatrix(countData = count_data,
                              colData = col_data,
                              design = ~ condition)
-dds = DESeq(dds, parallel = TRUE)
-res = results(dds, parallel = TRUE)
+dds = DESeq(dds)#, parallel = TRUE)
+res = results(dds)#, parallel = TRUE)
 
 # plot(sort(res$pvalue))
 # points(sort(res$padj), col = "red")
@@ -126,10 +126,10 @@ res = results(dds, parallel = TRUE)
 
 
 ```{r default-deseq2, echo=FALSE}
-print(paste("How many genes in default DESeq2?", paste(sort(gene[which(res$padj < 0.1)]), collapse = "\n"))) # 50 genes here
+cat(paste("How many genes in default DESeq2?", paste(sort(gene[which(res$padj < 0.1)]), collapse = "\n"), sep = "\n")) # 50 genes here
 ```
 
-```{r deseq2-process}
+```{r deseq2-process, message = FALSE}
 # Not exactly sure what this plot does either.
 # plotMA(res, main="DESeq2", ylim=c(-3,3))
 
@@ -142,8 +142,8 @@ threshold = sorted_pval[max(which(bh))]
 ```
 
 ```{r deseq2-bh, echo=FALSE}
-print(paste("How many genes in customized Benjamini-Hochberg procedure",
-            paste(sort(gene[which(res$pvalue < threshold)]), collapse="\n"))) # 4 genes here
+cat(paste("How many genes in customized Benjamini-Hochberg procedure",
+            paste(sort(gene[which(res$pvalue < threshold)]), collapse="\n"), sep = "\n")) # 4 genes here
 ```
 
 ```{r deseq2-checking}
@@ -171,6 +171,6 @@ addmargins(table(filtering = (res$padj < .1),
 ```
 
 ```{r deseq2-custom-bh, echo=FALSE}
-print(paste("How many genes in customized Benjamini-Hochberg procedure",
-            paste(sort(gene[which(resNoFilt$padj < 0.1)]), collapse="\n"))) # 2 genes here
+cat(paste("How many genes in customized Benjamini-Hochberg procedure",
+            paste(sort(gene[which(resNoFilt$padj < 0.1)]), collapse="\n"), sep="\n")) # 2 genes here
 ```
