@@ -2,7 +2,9 @@
 title: "Final Project"
 author: "Evan Ott"
 date: "December 5, 2016"
-output: html_notebook
+output:
+  pdf_document: default
+  html_notebook: default
 ---
 
 ```{r setup, include=FALSE}
