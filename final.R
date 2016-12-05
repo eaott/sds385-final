@@ -6,6 +6,8 @@ Rcpp::sourceCpp("scott_sgdlogit.cpp")
 
 raw_data = read.csv("master.csv", header = TRUE)
 
+# Read specific columns from the data
+
 kegg = as.character(raw_data[ , 1])
 gene = as.character(raw_data[ , 2])
 
@@ -13,13 +15,18 @@ data = raw_data[ , 3:ncol(raw_data)]
 
 N = ncol(data)
 P = nrow(data)
-M = rep(1, N)
+M = rep(1, N) # Used in logistic regression
 
-
+# For C++ code, it's easiest to use a sparse matrix
+# TODO: might want to consider scaling the counts, either in the way DESeq2 does
+# it or something similar.
 X = Matrix(as.matrix(unname(data)), sparse = TRUE)
+
+# Convert the column names to 0 = control, 1 = treatment
 Ynames = names(data)
 Y = stringi::stri_endswith(Ynames, fixed = "T") * 1
 
+# Initial guess for the betas.
 beta_init = rep(0, P)
 # For the weighting in the skip scenario for a feature
 # TODO: algorithm is very sensitive to this value
@@ -27,29 +34,40 @@ eta = 0.0002
 # passes through the data
 nIter = 100
 # L1 regularization
-# TODO: need CV or other way to choose lambda
+# TODO: need cross-validation or other way to choose lambda.
+# Right now, using manual value by eye (BAD practice)
 lambda = 1200.0
-# exponentially-weighted moving average
+# exponentially-weighted moving average factor
 # TODO: could explore other values.
 discount = 0.01
 
-# X[i, j] == data[i, j] is non-negative
-X_nozero = X[which(rowSums(data) > 0), ]
-result = sparsesgd_logit(X_nozero, Y, M, eta, nIter, beta_init, lambda, discount)
-#(MapMatd X, VectorXd Y, VectorXd M, double eta, int npass, VectorXd beta0, double lambda=1.0, double discount = 0.01)
 
-sum(result$beta != 0)
-gene[which(result$beta != 0)]
+# X[i, j] == data[i, j] is non-negative, so this trims out the genes with no counts
+X_nozero = X[which(rowSums(data) > 0), ]
+# Run the algorithm
+result = sparsesgd_logit(X_nozero, Y, M, eta, nIter, beta_init, lambda, discount)
+
+print(paste("How many genes are in the final model? ", sum(result$beta != 0)))
+print(paste("Which genes?", paste(gene[which(result$beta != 0)], collapse = "\n")))
 plot(result$nll_tracker)
+
+
+
 
 
 
 
 library(DESeq2)
 library(BiocParallel)
+# Allow for parallelization of DESeq2 code.
 register(MulticoreParam(4))
+
+# Get the counts
 count_data_raw = raw_data[ , 3:ncol(raw_data)]
 
+########################################
+#  Format the data in the way DESeq2 expects
+########################################
 new_colnames = rep(NULL, N)
 condition = rep(NULL, N)
 control = 0
@@ -74,55 +92,54 @@ rownames(count_data) = gene
 col_data = data.frame(condition)
 rownames(col_data) = new_colnames
 
-
+# Run DESeq2
 dds = DESeqDataSetFromMatrix(countData = count_data,
-                             colData = col_data,
-                             design = ~ condition)
-dds
+colData = col_data,
+design = ~ condition)
 dds = DESeq(dds, parallel = TRUE)
 res = results(dds, parallel = TRUE)
 
-plot(sort(res$pvalue))
-points(sort(res$padj), col = "red")
-P - sum(is.na(res$pvalue))
-P - sum(is.na(res$padj))
+# plot(sort(res$pvalue))
+# points(sort(res$padj), col = "red")
+# P - sum(is.na(res$pvalue))
+# P - sum(is.na(res$padj))
 
+print(paste("How many genes in default DESeq2?", paste(sort(gene[which(res$padj < 0.1)]), collapse = "\n"))) # 50 genes here
 
+# Not exactly sure what this plot does either.
+# plotMA(res, main="DESeq2", ylim=c(-3,3))
 
-plotMA(res, main="DESeq2", ylim=c(-3,3))
-
-sort(gene[which(res$padj < 0.1)]) # 50 genes here
-
-# Benjamini-Hochberg instead
+# Benjamini-Hochberg by hand (DESeq2 does something similar...)
 alpha = 0.1
 sorted_pval = sort(res$pvalue, na.last = TRUE)
 numNA = sum(is.na(res$pvalue))
 bh = sapply(1:P, function(i){ sorted_pval[i] <= alpha * (i + 1) / (P - numNA)})
 threshold = sorted_pval[max(which(bh))]
-sort(gene[which(res$pvalue < threshold)]) # 4 genes here
 
-# These two are equal -- throws out genes that were never observed \S1.5.3 of paper
-sum(rowSums(count_data) == 0)
-sum(is.na(res$pvalue))
+print(paste("How many genes in customized Benjamini-Hochberg procedure",
+paste(sort(gene[which(res$pvalue < threshold)]), collapse="\n"))) # 4 genes here
+
+# These two are equal -- throws out genes that were never observed section 1.5.3 of DESeq2 paper
+print(paste(sum(rowSums(count_data) == 0),
+sum(is.na(res$pvalue))))
 
 # 111675 genes are thrown out by the "independent filtering" for having a low
 # mean normalized count
 sum(is.na(res$padj)) - sum(is.na(res$pvalue))
 
-plot(metadata(res)$filterNumRej,
-     type = "b", ylab = "number of rejections",
-     xlab = "quantiles of filter")
-lines(metadata(res)$lo.fit, col = "red")
-abline(v = metadata(res)$filterTheta)
+# Not entirely sure what this plot means.
+# plot(metadata(res)$filterNumRej,
+#      type = "b", ylab = "number of rejections",
+#      xlab = "quantiles of filter")
+# lines(metadata(res)$lo.fit, col = "red")
+# abline(v = metadata(res)$filterTheta)
 
 #nofilter
 # If you turn off the filtering, only two of the adjusted p-values are less than 0.1
 # where the adjustment basically just accounts for Benjamini-Hochberg, I think
 resNoFilt <- results(dds, independentFiltering = FALSE)
 addmargins(table(filtering = (res$padj < .1),
-                 noFiltering = (resNoFilt$padj < .1)))
-sort(gene[which(resNoFilt$padj < 0.1)]) # only 2 genes here
+noFiltering = (resNoFilt$padj < .1)))
 
-
-
-
+print(paste("How many genes in customized Benjamini-Hochberg procedure",
+paste(sort(gene[which(resNoFilt$padj < 0.1)]), collapse="\n"))) # 2 genes here
