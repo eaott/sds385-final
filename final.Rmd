@@ -14,9 +14,12 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Let's load in the data and Dr. Scott's algorithm:
 ```{r readdata}
+library(ggplot2)
+library(latex2exp)
 library(Matrix)
 library(Rcpp)
 library(RcppEigen)
+library(reshape2)
 
 Rcpp::sourceCpp("scott_sgdlogit.cpp")
 
@@ -38,12 +41,102 @@ M = rep(1, N) # Used in logistic regression
 # it or something similar.
 X = Matrix(as.matrix(unname(data)), sparse = TRUE)
 
+# X[i, j] == data[i, j] is non-negative, so this trims out the genes with no counts
+X_nozero = X[which(rowSums(data) > 0), ]
+
 # Convert the column names to 0 = control, 1 = treatment
 Ynames = names(data)
 Y = stringi::stri_endswith(Ynames, fixed = "T") * 1
 ```
 
-Now, let's run the code and see what happens.
+Now, let's create a transformed version of X where the values are on the log scale.
+
+```{r x-log-scale}
+# Copy it as to not damage the original
+X_nozero_log = X_nozero
+# Oooh I figured out a sweet hack. So the dgCMatrix class could be used in the
+# following way:
+# X@i are the row indices - 1 (that have ncol sections in non-decreasing order)
+# X@p are the indices - 1 in X@i where we switch to a new column
+# 
+# OR
+# X@x is the (non-zero) data itself, so why not just edit that? =D
+# Here, add a small value because log(1) == 0, and we want to maintain a value there.
+# #oneliner
+X_nozero_log@x = log2(X_nozero_log@x + 0.1)
+```
+
+Now, let's try to use cross-validation (on the limited number of samples we have)
+to determine a good range for $\lambda$, the LASSO penalty factor in the stochastic gradient decent logistic regression code.
+
+```{r sgd-cv}
+# Initial guess for the betas.
+beta_init = rep(0, P)
+# For the weighting in the skip scenario for a feature
+# TODO: algorithm is very sensitive to this value
+eta = 0.0002
+# passes through the data
+nIter = 100
+# exponentially-weighted moving average factor
+# TODO: could explore other values.
+discount = 0.01
+
+# X_cv = X_nozero
+X_cv = X_nozero_log
+
+folds = 3
+col_breaks = cut(1:length(Y), folds, labels = FALSE)
+abs_errors = c()
+zero_one_errors = c()
+lambdas = 10 ^ seq(-1, 4, 0.1)
+for (lambda in lambdas) {
+  absFoldErrors = c()
+  zeroOneFoldErrors = c()
+  for (fold in 1:folds) {
+    test_ind = which(col_breaks == fold)
+    train_ind = which(col_breaks != fold)
+    X_nozero_train = X_cv[ , train_ind]
+    Y_train = Y[train_ind]
+    X_nozero_test = X_cv[ , test_ind]
+    Y_test = Y[test_ind]
+    
+    train_result = sparsesgd_logit(X_nozero_train, Y_train, M[train_ind], eta, nIter, beta_init, lambda, discount)
+    
+    intercept = train_result$alpha
+    beta = train_result$beta
+    prediction_test = 1/(1 + exp(-(intercept + t(X_nozero_test) %*% beta)))
+    
+    # metrics to choose from
+    zero_one_error_test = sum(Y_test != round(prediction_test))
+    abs_error_test = sum(abs(Y_test - prediction_test))
+    
+    absFoldErrors = c(absFoldErrors, abs_error_test)
+    zeroOneFoldErrors = c(zeroOneFoldErrors, zero_one_error_test)
+  }
+  abs_errors = c(abs_errors, mean(absFoldErrors))
+  zero_one_errors = c(zero_one_errors, mean(zeroOneFoldErrors))
+}
+```
+
+```{r sgd-cv-plot, echo=FALSE}
+gg_color_hue <- function(n) {
+  hues = seq(15, 375, length = n + 1)
+  hcl(h = hues, l = 65, c = 100)[1:n]
+}
+plotdata = data.frame(lambdas, abs_errors, zero_one_errors)
+plotdata = melt(plotdata, id.vars = "lambdas")
+ggplot(plotdata) + geom_point(aes(lambdas, value, group = variable, col = variable)) +
+  geom_line(aes(lambdas, value, group = variable, col = variable)) +
+  scale_x_log10() + ylab("error") + ggtitle(paste0(folds, "-fold cross-validation out-of-sample errors")) +
+  xlab(TeX("$\\lambda$")) + guides(color = guide_legend(title = "")) +
+  scale_color_manual(labels = c("absolute errors", "0-1 errors"), values = gg_color_hue(2))
+```
+
+So based on 3-fold cross-validation, the absolute error $\sum_i \left|y_i - \hat{y}_i\right|$ seems to reach its best
+(minimal) value when $\lambda=10^{-0.2}$ while the 0-1 error $\sum_i \delta\left(y_i,~ \textrm{round}(\hat{y}_i)\right)$
+(number of incorrect predictions) exhibits the same behavior around $\lambda=10^{0.5}$.
+
+Let's take the latter, since the absolute error shouldn't be different.
 
 ```{r sgd}
 # Initial guess for the betas.
@@ -54,19 +147,23 @@ eta = 0.0002
 # passes through the data
 nIter = 100
 # L1 regularization
-# TODO: need cross-validation or other way to choose lambda.
-# Right now, using manual value by eye (BAD practice)
-lambda = 1200.0
+lambda = 10^0.5
 # exponentially-weighted moving average factor
 # TODO: could explore other values.
 discount = 0.01
 
-
-# X[i, j] == data[i, j] is non-negative, so this trims out the genes with no counts
-X_nozero = X[which(rowSums(data) > 0), ]
 # Run the algorithm
-result = sparsesgd_logit(X_nozero, Y, M, eta, nIter, beta_init, lambda, discount)
+result = sparsesgd_logit(X_nozero_log, Y, M, eta, nIter, beta_init, lambda, discount)
+intercept = result$alpha
+beta = result$beta
+prediction = 1/(1 + exp(-(intercept + t(X_nozero_log) %*% beta)))
+plot(prediction[ , 1] ~ Y)
 ```
+So, these predictions are, to use a technical term, "totally garbage."
+Every single prediction is just slightly below $\frac{1}{2}$ so the algorithm
+is effectively saying, "I dunno, but maybe this data is control not treatment"
+so while the results below are potentially a starting point, it'd be rather foolish
+to grant them much authority.
 
 ```{r sgd-outputs, echo=FALSE, collapse=TRUE}
 cat(paste("How many genes are in the final model? ", sum(result$beta != 0), "\n"))
@@ -75,7 +172,7 @@ plot(result$nll_tracker)
 ```
 
 #DESeq2
-Now, let's use a pre-fabricated solution instead. I've included the code here to do the parallel execution, but I think RMarkdown will actually only run in one thread because reasons. Maybe.
+Now, let's use a pre-fabricated solution instead.
 ```{r deseq2-run, message=FALSE, warning=FALSE}
 library(DESeq2)
 #library(BiocParallel)
@@ -112,6 +209,9 @@ rownames(count_data) = gene
 col_data = data.frame(condition)
 rownames(col_data) = new_colnames
 
+# remove the unobserved genes from the get-go
+count_data = count_data[which(rowSums(data) > 0), ]
+
 # Run DESeq2
 dds = DESeqDataSetFromMatrix(countData = count_data,
                              colData = col_data,
@@ -128,7 +228,8 @@ res = results(dds)#, parallel = TRUE)
 
 
 ```{r default-deseq2, echo=FALSE}
-cat(paste("How many genes in default DESeq2?", paste(sort(gene[which(res$padj < 0.1)]), collapse = "\n"), sep = "\n")) # 50 genes here
+cat(paste("How many genes are in the final model? ", length(which(res$padj < 0.1)), "\n"))
+cat(paste("Which genes in default DESeq2?", paste(sort(gene[which(res$padj < 0.1)]), collapse = "\n"), sep = "\n"))
 ```
 
 ```{r deseq2-process, message = FALSE}
@@ -139,12 +240,14 @@ cat(paste("How many genes in default DESeq2?", paste(sort(gene[which(res$padj < 
 alpha = 0.1
 sorted_pval = sort(res$pvalue, na.last = TRUE)
 numNA = sum(is.na(res$pvalue))
-bh = sapply(1:P, function(i){ sorted_pval[i] <= alpha * (i + 1) / (P - numNA)})
+bh = sapply(1:P, function(i){ sorted_pval[i] <= alpha * i / (P - numNA)})
 threshold = sorted_pval[max(which(bh))]
 ```
 
 ```{r deseq2-bh, echo=FALSE}
 cat(paste("How many genes in customized Benjamini-Hochberg procedure",
+          length(which(res$pvalue < threshold)), "\n", sep = "\n")) # 1 gene here
+cat(paste("Which genes in customized Benjamini-Hochberg procedure",
             paste(sort(gene[which(res$pvalue < threshold)]), collapse="\n"), sep = "\n")) # 4 genes here
 ```
 
@@ -153,7 +256,7 @@ cat(paste("How many genes in customized Benjamini-Hochberg procedure",
 print(paste(sum(rowSums(count_data) == 0),
             sum(is.na(res$pvalue))))
 
-# 111675 genes are thrown out by the "independent filtering" for having a low
+# 118687 genes are thrown out by the "independent filtering" for having a low
 # mean normalized count
 sum(is.na(res$padj)) - sum(is.na(res$pvalue))
 
@@ -173,6 +276,8 @@ addmargins(table(filtering = (res$padj < .1),
 ```
 
 ```{r deseq2-custom-bh, echo=FALSE}
+cat(paste("How many genes without independent filtering",
+            length(which(resNoFilt$padj < 0.1)), "\n", sep="\n")) # 2 genes here
 cat(paste("How many genes without independent filtering",
             paste(sort(gene[which(resNoFilt$padj < 0.1)]), collapse="\n"), sep="\n")) # 2 genes here
 ```
