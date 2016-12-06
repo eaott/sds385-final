@@ -23,14 +23,13 @@ library(reshape2)
 
 Rcpp::sourceCpp("scott_sgdlogit.cpp")
 
-raw_data = read.csv("master.csv", header = TRUE)
+raw_data = read.csv("master_countedByKegg.csv", header = TRUE)
 
 # Read specific columns from the data
 
-kegg = as.character(raw_data[ , 1])
-gene = as.character(raw_data[ , 2])
+gene = as.character(raw_data[ , 1])
 
-data = raw_data[ , 3:ncol(raw_data)]
+data = raw_data[ , 2:ncol(raw_data)]
 
 N = ncol(data)
 P = nrow(data)
@@ -133,10 +132,10 @@ ggplot(plotdata) + geom_point(aes(lambdas, value, group = variable, col = variab
 ```
 
 So based on 3-fold cross-validation, the absolute error $\sum_i \left|y_i - \hat{y}_i\right|$ seems to reach its best
-(minimal) value when $\lambda=10^{-0.2}$ while the 0-1 error $\sum_i \delta\left(y_i,~ \textrm{round}(\hat{y}_i)\right)$
-(number of incorrect predictions) exhibits the same behavior around $\lambda=10^{0.5}$.
+(minimal) value when $\lambda=10^{-0.4}$ while the 0-1 error $\sum_i \delta\left(y_i,~ \textrm{round}(\hat{y}_i)\right)$
+(number of incorrect predictions) exhibits the same behavior around $\lambda=10^{0.6}$.
 
-Let's take the latter, since the absolute error shouldn't be different.
+Let's take the latter.
 
 ```{r sgd}
 # Initial guess for the betas.
@@ -147,16 +146,16 @@ eta = 0.0002
 # passes through the data
 nIter = 100
 # L1 regularization
-lambda = 10^0.5
+lambda = 10^3.5
 # exponentially-weighted moving average factor
 # TODO: could explore other values.
 discount = 0.01
 
 # Run the algorithm
-result = sparsesgd_logit(X_nozero_log, Y, M, eta, nIter, beta_init, lambda, discount)
+result = sparsesgd_logit(X_cv, Y, M, eta, nIter, beta_init, lambda, discount)
 intercept = result$alpha
 beta = result$beta
-prediction = 1/(1 + exp(-(intercept + t(X_nozero_log) %*% beta)))
+prediction = 1/(1 + exp(-(intercept + t(X_cv) %*% beta)))
 plot(prediction[ , 1] ~ Y)
 ```
 So, these predictions are, to use a technical term, "totally garbage."
@@ -179,6 +178,7 @@ library(DESeq2)
 # Allow for parallelization of DESeq2 code.
 #register(MulticoreParam(4))
 
+# Simple function for formatting DESeq2 results
 get_results = function(d) {
   nms = rownames(d)
   log2change = d[ , 2]
@@ -188,7 +188,7 @@ get_results = function(d) {
 }
 
 # Get the counts
-count_data_raw = raw_data[ , 3:ncol(raw_data)]
+count_data_raw = raw_data[ , 2:ncol(raw_data)]
 
 ########################################
 #  Format the data in the way DESeq2 expects
@@ -253,10 +253,10 @@ bh = sapply(1:P, function(i){ sorted_pval[i] <= alpha * i / (P - numNA)})
 threshold = sorted_pval[max(which(bh))]
 ```
 
-```{r deseq2-bh, echo=TRUE}
+```{r deseq2-bh, echo=FALSE}
 cat(paste("How many genes in customized Benjamini-Hochberg procedure",
           length(which(res$pvalue < threshold)), "\n", sep = "\n")) # 1 gene here
-print("Which genes in customized Benjamini-Hochberg procedure")
+print("Which genes in customized Benjamini-Hochberg procedure?")
 get_results(res[which(res$pvalue < threshold), ])
 ```
 
@@ -287,6 +287,6 @@ addmargins(table(filtering = (res$padj < .1),
 ```{r deseq2-custom-bh, echo=FALSE}
 cat(paste("How many genes without independent filtering",
             length(which(resNoFilt$padj < 0.1)), "\n", sep="\n")) # 2 genes here
-print("How many genes without independent filtering")
-get_results(resNoFilt[which(resNoFilt$padj < 0.1),])
+print("Which genes without independent filtering?")
+get_results(resNoFilt[which(resNoFilt$padj < 0.1), ])
 ```
