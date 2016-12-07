@@ -43,6 +43,7 @@ X = Matrix(as.matrix(unname(data)), sparse = TRUE)
 
 # X[i, j] == data[i, j] is non-negative, so this trims out the genes with no counts
 X_nozero = X[which(rowSums(data) > 0), ]
+P = nrow(X_nozero)
 
 # Convert the column names to 0 = control, 1 = treatment
 Ynames = names(data)

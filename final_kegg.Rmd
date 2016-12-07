@@ -3,8 +3,8 @@ title: "Final Project"
 author: "Evan Ott"
 date: "December 5, 2016"
 output:
-  pdf_document: default
   html_notebook: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -32,7 +32,6 @@ gene = as.character(raw_data[ , 1])
 data = raw_data[ , 2:ncol(raw_data)]
 
 N = ncol(data)
-P = nrow(data)
 M = rep(1, N) # Used in logistic regression
 
 # For C++ code, it's easiest to use a sparse matrix
@@ -42,6 +41,7 @@ X = Matrix(as.matrix(unname(data)), sparse = TRUE)
 
 # X[i, j] == data[i, j] is non-negative, so this trims out the genes with no counts
 X_nozero = X[which(rowSums(data) > 0), ]
+P = nrow(X_nozero)
 
 # Convert the column names to 0 = control, 1 = treatment
 Ynames = names(data)
@@ -124,11 +124,13 @@ gg_color_hue <- function(n) {
 }
 plotdata = data.frame(lambdas, abs_errors, zero_one_errors)
 plotdata = melt(plotdata, id.vars = "lambdas")
-ggplot(plotdata) + geom_point(aes(lambdas, value, group = variable, col = variable)) +
+g = ggplot(plotdata) + geom_point(aes(lambdas, value, group = variable, col = variable)) +
   geom_line(aes(lambdas, value, group = variable, col = variable)) +
   scale_x_log10() + ylab("error") + ggtitle(paste0(folds, "-fold cross-validation out-of-sample errors")) +
   xlab(TeX("$\\lambda$")) + guides(color = guide_legend(title = "")) +
   scale_color_manual(labels = c("absolute errors", "0-1 errors"), values = gg_color_hue(2))
+g
+ggsave("3-fold-CV-kegg.png", g)
 ```
 
 So based on 3-fold cross-validation, the absolute error $\sum_i \left|y_i - \hat{y}_i\right|$ seems to reach its best
@@ -146,7 +148,7 @@ eta = 0.0002
 # passes through the data
 nIter = 100
 # L1 regularization
-lambda = 10^3.5
+lambda = 10^0.6
 # exponentially-weighted moving average factor
 # TODO: could explore other values.
 discount = 0.01
@@ -156,7 +158,10 @@ result = sparsesgd_logit(X_cv, Y, M, eta, nIter, beta_init, lambda, discount)
 intercept = result$alpha
 beta = result$beta
 prediction = 1/(1 + exp(-(intercept + t(X_cv) %*% beta)))
-plot(prediction[ , 1] ~ Y)
+plotdata = data.frame(prediction=prediction[,1], y=Y)
+g = ggplot(plotdata) + geom_point(aes(y, prediction))
+g
+ggsave("kegg-cv-prediction.png", g)
 ```
 So, these predictions are, to use a technical term, "totally garbage."
 Every single prediction is just slightly below $\frac{1}{2}$ so the algorithm
@@ -166,7 +171,7 @@ to grant them much authority.
 
 ```{r sgd-outputs, echo=FALSE, collapse=TRUE}
 cat(paste("How many genes are in the final model? ", sum(result$beta != 0), "\n"))
-cat(paste("Which genes?", paste(gene[which(result$beta != 0)], collapse = "\n"), sep = "\n"))
+cat(paste("Which genes?", paste(sort(gene[which(result$beta != 0)]), collapse = "\n"), sep = "\n"))
 plot(result$nll_tracker)
 ```
 

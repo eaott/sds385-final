@@ -1,4 +1,6 @@
 # LaTeX files
+*.bbl
+*.blg
 *.dvi
 *.aux
 *.fdb_latexmk
@@ -7,7 +9,7 @@
 *.out
 *.synctex.gz
 *.swp
-
+*.toc
 # History files
 .Rhistory
 .Rapp.history

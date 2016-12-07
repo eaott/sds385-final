@@ -1,0 +1,325 @@
+\documentclass{article}
+\usepackage[top=.5in, bottom=.5in, left=.9in, right=.9in]{geometry}
+\usepackage[latin1]{inputenc}
+\usepackage{enumerate}
+\usepackage{hyperref}
+\usepackage{graphics}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{tabularx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{siunitx}
+\usepackage{mathtools}
+\usepackage{bbm}
+
+
+
+\usepackage[authoryear,round]{natbib}
+
+% Use instead of natbib
+%\usepackage[backend=bibtex,citestyle=authoryear-comp,natbib=true,sorting=none,hyperref=true,maxnames=2,arxiv=pdf]{biblatex}
+%\renewbibmacro{in:}{}
+%\addbibresource{/Users/Evan/GitProjects/tex-docs/references.bib}
+
+
+
+
+\newcommand{\obar}[1]{\ensuremath{\overline{ #1 }}}
+\newcommand{\iid}{\ensuremath{\stackrel{\textrm{iid}}{\sim}}}
+\newcommand{\op}[2]{{\ensuremath{\underset{ #2 }{\operatorname{ #1 }}~}}}
+\newcommand{\norm}[1]{{ \ensuremath{ \left\lVert  #1 \right\rVert  }  }}
+\newcommand{\cov}{ \ensuremath{ \textrm{cov} } }
+\newcommand{\var}{ \ensuremath{ \textrm{var} } }
+\newcommand{\tr}{ \ensuremath{ \textrm{trace} } }
+\newcommand{\df}{ \ensuremath{ \textrm{df} } }
+\newcommand{\R}{ \ensuremath{ \mathbb{R} }}
+\newcommand{\indicator}[1]{ \ensuremath{ \mathbbm{1}\left\{ #1 \right\} }   }
+
+\usepackage{xcolor}
+\definecolor{darkgreen}{rgb}{0,0.25,0}
+\newcommand{\soln}{{\color{red}\textbf{Solution:~}\color{black}}}
+
+
+\usepackage[formats]{listings}
+\lstdefineformat{R}{~={\( \sim \)}}
+\lstset{% general command to set parameter(s)
+basicstyle=\small\ttfamily, % print whole listing small
+keywordstyle=\bfseries\rmfamily,
+keepspaces=true,
+% underlined bold black keywords
+commentstyle=\color{darkgreen}, % white comments
+stringstyle=\ttfamily, % typewriter type for strings
+showstringspaces=false,
+numbers=left, numberstyle=\tiny, stepnumber=1, numbersep=5pt, %
+frame=shadowbox,
+rulesepcolor=\color{black},
+,columns=fullflexible,format=R
+} %
+\renewcommand{\ttdefault}{cmtt}
+% enumerate is numbered \begin{enumerate}[(I)] is cap roman in parens
+% itemize is bulleted \begin{itemize}
+% subfigures:
+% \begin{subfigure}[b]{0.5\textwidth} \includegraphics{asdf.jpg} \caption{} \label{subfig:asdf} \end{subfigure}
+\hypersetup{colorlinks=true, urlcolor=blue, linkcolor=blue, citecolor=blue}
+
+
+\graphicspath{ {C:/Users/Evan/Desktop/} }
+\title{\vspace{-6ex}SDS 385: Final Project\vspace{-2ex}}
+\author{Evan Ott \\ UT EID: eao466\vspace{-2ex}}
+%\date{DATE}
+\setcounter{secnumdepth}{0}
+\usepackage[parfill]{parskip}
+
+
+
+\begin{document}
+\maketitle
+
+
+\tableofcontents
+
+
+\section{Methods}
+We tried two general methods for trying to identify markers for periodontal disease: logistic regression with a
+LASSO penalty and the off-the-shelf \texttt{DESeq2} package in R. Within each framework, we also tried
+a master data set where each gene is treated separately, along with a ``grouped'' data set, where similar
+genes were counted together into biologically-sensible groups.
+
+\subsection{Data}
+
+The master data can be thought of as a matrix $X$ with dimension $N\times P$ where $N$ samples were taken
+of $P$ genes from across the microbiome. $X_{i,j}$, determined using RNA-seq, represents the count of how many
+times gene $j$ was expressed for sample $i$. Along with this information, we also know $Y_i$, whether sample
+$i$ is in the control or treatment group. (Note: We also know which patient the sample comes from, but in
+our analysis, we disregarded this and treated all samples as independent -- a simplifying assumption that we
+take with a grain of salt)
+
+The grouped data $\tilde{X}$ is then an $N\times \tilde{P}$ matrix, where $\tilde{P} < P$ is the number of groups
+of genes. $Y$ remains unchanged.
+
+Here, we have $N=27$ samples, $P=152448$ observed genes, and $\tilde{P}=2227$ groups of genes.
+
+\subsection{Logistic Regression}
+
+For this problem, perhaps without much surprise to those with topic familiarity, the logistic regression model
+failed pretty extravagantly. Using a pre-processing step common in using this manner of count data, we applied
+the following log transformation:
+$$Z_{i,j}=\left\{\begin{array}{cc}
+0 & X_{i,j}=0\\
+\log_2 (X_{i,j}+0.1) & X_{i,j} > 0
+\end{array}\right.$$
+Essentially, keep the zeros, but scale the rest of the data on a log scale (adding a small constant to ensure
+a count of one is not represented as a zero.
+
+We used stochastic gradient descent to solve this objective:
+\begin{align*}
+\op{minimize}{\alpha \in \R,~\beta \in \R^p}& \sum_i \norm{y_i - \hat{y}_{\alpha,\beta}(Z_{i,\cdot})}_2^2 + \lambda \norm{\beta}_1\\
+\hat{y}_{\alpha, \beta}(x)=&\frac{1}{1+\exp\left(- \alpha - x^\top \beta \right)}
+\end{align*}
+that is, logistic regression with a LASSO penalty on the non-intercept parameters.
+
+However, on both the ``master'' and ``grouped'' data, we were unable to produce a model that had any semblance
+of good predictive power. We used 3-fold cross validation to select the penalty $\lambda$ using the held-out data.
+In particular, we considered the mean 0-1 error (number of correct predictions when $\hat{y}$ is rounded to 0 or 1)
+and the mean of the absolute error ($\sum_i \left|y_i - \hat{y}_{\alpha,\beta}(Z_{i,\cdot})\right|$). We used 3 folds
+simply because we had so few samples $N=27$. Consequently, we used the ``eye test,'' as it were, to identify
+reasonable values of $\lambda$ from plotting these cross-validated error estimates. In the grouped case, see Figure \ref{fig:one}
+
+\begin{figure}[h]
+\begin{center}
+\includegraphics[scale=0.2]{3-fold-CV-kegg.png}
+\caption{\label{fig:one}Error using the grouped data versus the LASSO penalty $\lambda$.
+In blue, the mean 0-1 error on the held-out set. In red, the mean absolute error on the held-out set.}
+\end{center}
+\end{figure}
+
+By the ``eye test'' -- we used only 3 folds, so it seems foolish to use the ``most parsimonious within one standard 
+error'' trick simply by having a not-believable estimate of the standard error -- the absolute error seems to not 
+improve for $\lambda > 10^{-0.4}$ while the 0-1 error does not improve for $\lambda > 10^{+0.6}$. Using the more
+restrictive value $\lambda = 10^{+0.6}$, running on the entire grouped data set shows that the predicted values 
+$\hat{y}$ are all below 0.5, indicating that the rounded predictions would all be zero! See Figure \ref{fig:two}
+
+\begin{figure}[h]
+\begin{center}
+\includegraphics[scale=0.15]{kegg-cv-prediction.png}
+\caption{\label{fig:two}Predictions for $\lambda=10^{+0.6}$ on the grouped data set versus actual value (0 for control, 1 for treatment).}
+\end{center}
+\end{figure}
+
+Out of $\tilde{P}=2227$ possible gene groups, this process produced non-zero coefficients for only 4. For the $P=152448$ total genes, the same process (for $\lambda=10^{+0.5}$) produced 25 non-zero coefficients. These
+are included in the tables below, but should not be viewed as particularly reliable, for the reasons outlined above.
+
+On the grouped data, we also tried using the raw counts. The cross-validated error plot was certainly more 
+interesting, but the results were similar, where the predictions using the entire grouped data set were abysmal.
+
+\subsection{\texttt{DESeq2}}
+The R package \texttt{DESeq2} is a standard for analyzing this kind of data. It uses the model below to identify
+which genes are more indicative of a control or treatment sample:
+\begin{align*}
+X_{i,j}\sim& \texttt{Negative-Binomial}(\mu_{i,j}, \alpha_i)\\
+\mu_{i,j}=&s_jq_{i,j}\\
+\log_2(q_{i,j})=&u_{j,\cdot} \beta_i
+\end{align*}
+where $u_{j,\cdot}$ comes from the $N\times 3$ design matrix (first column all ones, second column as an indicator
+for being in the control group, third column for being in the treatment group), and $\beta_i$ is the quantity of interest,
+with $\gamma_i=\beta_{i, 3}-\beta_{i,2}$ being the ``log2 fold change.'' We won't discuss the other parameters
+here as they are not of interest in this analysis. For more information, see \S4.1 of \citep{deseq2}.
+
+It's a little unclear exactly how \texttt{DESeq2} handles multiple testing. It says that it uses the Benjamini-Hochberg
+procedure to create adjusted $p$-values (such that checking $\textrm{padj}_i<\alpha$ is equivalent to the
+Benjamini-Hochberg procedure with FDR controlled at $\alpha$) \citep{benjamini1995controlling}. 
+Any gene (gene group) with such an adjusted $p$-value is included in Table \ref{tbl:genes} (Table \ref{tbl:groups}).
+However, this 
+adjusted $p$-value is not always available -- in cases where a gene/group is filtered by ``independent filtering'' (having a low
+mean normalized count),
+it is set to \texttt{NA}. See \S1.5.3 of \citep{deseq2} for more.
+
+So, we implemented our own, standard version of the Benjamini-Hochberg procedure
+on the non-adjusted $p$-values (that are the result of a Wald test for the log2 fold change). While in principle,
+the genes identified in this manner need not have been a subset of those identified in the default setting,
+in practice they are. These are seen in the ``Our B-H'' column in the tables.
+
+Finally, we also looked into the ``independent filtering'' which is described in \S3.8 and \S4.7 of \citep{deseq2}.
+This essentially tries to determine a cutoff for the mean of the normalized counts where smaller values are
+excluded from the analysis. Turning this off (in general) will likely yield fewer rejections once \texttt{DESeq2}'s 
+internal Benjamini-Hochberg procedure is applied -- more ``noise'' data will enter in, padding the ``signal'' data,
+making it more difficult for a particular signal to make it past the Benjamini-Hochberg procedure (if the significance
+level is kept constant). However, if we are happy with fewer rejections (perhaps just a smaller set of genes
+to consider during an initial investigation), this becomes useful. The results from turning off the filtering (but using
+\texttt{DESeq2}'s specialized Benjamini-Hochberg procedure) are in the ``No Filtering'' column in the tables.
+
+
+\section{Results}
+Tables \ref{tbl:groups} and \ref{tbl:genes} represent the high-level results of this investigation. They indicate
+genes/groups of genes identified by logistic regression (that should not be regarded highly for reasons outlined 
+above) and by \texttt{DESeq2}. The variants applied to the latter indicate smaller subsets of genes/groups of genes
+to consider when trying to investigate any biological basis for periodontal disease. In particular,
+dpig\_c\_1\_8  and raer\_c\_9\_1389 seem indicative of positive and negative markers, respectively for disease based
+on turning off \texttt{DESeq2}'s independent filtering (Table \ref{tbl:genes}).
+
+\begin{table}[h]
+\begin{center}
+\begin{tabular}{r|cccl}
+Gene group & LR & \texttt{DESeq2} & Our B-H & No Filtering\\
+\hline
+1.1.1.36 & & - & & \\
+1.14.-.-   & & - & &\\
+1.14.14.- & & - & & \\
+1.14.14.10& & - & -&- \\
+1.2.1.39& & - & -& -\\
+1.2.99.8& & - & -& -\\
+1.3.99.5& & - & -& -\\
+1.4.99.-  & Y \\
+2.1.1.140& & - &- &- \\
+2.7.7.73& & - & & \\
+2.7.13.3 & Y \\
+3.1.3.21& & - & -& -\\
+3.4.11.-& & + & +& +\\
+3.4.11.9 & Y \\
+3.4.24.-  & Y\\
+3.5.1.54& & - & -& -\\
+3.6.3.9& & + &+& +\\
+4.2.1.153& & - & & \\
+5.1.1.7& & - & -& -\\
+5.3.3.-& & - &- & -\\
+5.4.99.26& & - & -& -\\
+6.-.-.-& & - & & \\
+6.3.3.3& & - &- &- \\
+6.4.1.6& & - & &- \\
+\end{tabular}
+\caption{\label{tbl:groups}Gene groups identified using the various strategies outlined. A ``Y'' in the first column
+indicates that the listed gene group had a non-zero coefficient in the logistic regression method -- this is primarily
+recorded for posterity, not because the analysis is trusted. For the remaining columns, a ``-'' indicates that
+a high count in that gene group is indicative of being a control sample. A ``+'' indicates that a high count is indicative
+of being a treatment sample. A blank indicates that it is not present in that particular model.}
+\end{center}
+\end{table}
+
+\begin{table}[h]
+\begin{center}
+\begin{tabular}{r|ccc}
+Gene &  \texttt{DESeq2} & B-H & No Filter\\
+\hline
+abau\_c\_1\_3356 & - &  &   \\
+aisr\_c\_20\_1998 & -  &  &   \\
+   amas2385\_c\_4\_872 & - &  &   \\
+   aot170\_c\_17\_1854 & - &  &   \\
+  aot171\_c\_140\_1750 & - &  &   \\
+     aot171\_c\_3\_100 & - &  &   \\
+   aot172\_c\_99\_1663 & - &  &   \\
+   aot448\_c\_6\_964 & +  &  &   \\
+  apre\_c\_1\_700 & - &  &   \\
+ cdip\_c\_1\_1509 & - &  &   \\
+chom\_c\_27\_1386 & - &  &   \\
+chom\_c\_55\_2086 & - &  &   \\
+  cper\_c\_2\_296   & +  &  &   \\
+ cure\_c\_1\_1578 & - &  &   \\
+    dpig\_c\_1\_8   & +  &  & +  \\
+     efae1080\_c\_1\_913 & - &  &   \\
+     esak\_c\_1\_3901 & - &  &   \\
+    fnucp\_c\_3\_1442  & + &  &   \\
+  fper2555\_c\_2\_652   & +  &  &   \\
+   gmor\_c\_19\_1592 & - &  &   \\
+ lcat\_c\_18\_1871 & - &  &   \\
+    lgas\_c\_1\_25 & - &  &   \\
+  lgoo\_c\_14\_911 & - &  &   \\
+   lmon\_c\_1\_308 & - &  &   \\
+lot107\_c\_9\_1346  &+ &  &   \\ 
+  mlot\_c\_1\_5349 & - &  &   \\
+  mneo\_c\_1\_1226 & - &  &   \\
+  mneo\_c\_1\_1611 & - &  &   \\
+  mot186\_c\_3\_1980 & - &  &   \\
+      mtub\_c\_1\_788   &+ &  &   \\
+      nbac\_c\_3\_267 & - &  &   \\
+ NCBIABIX\_c\_1\_1199 & - &  &   \\
+opro\_c\_21\_2166 & - &  &   \\
+  pend\_c\_1\_176 & - &  &   \\
+peno\_c\_75\_2748 & - &  &   \\
+pmel\_c\_20\_1104 & - &  &   \\
+ pmuls\_c\_6\_923 & - &  &   
+     \end{tabular}
+  \begin{tabular}{r|ccc}
+Gene &  \texttt{DESeq2} &   B-H & No Filter\\
+\hline
+ pot786\_c\_28\_1621 & - &  &   \\
+ pple\_c\_7\_1120 & - &  &   \\
+ pstu\_c\_1\_2331 & - &  &   \\
+pver\_c\_10\_1377 & - &  &   \\
+  raer\_c\_1\_313 & - &  &   \\
+raer\_c\_17\_1833 & - &  &   \\
+  raer\_c\_2\_422 & - &  &   \\
+ raer\_c\_5\_1016 & - &  &   \\
+ raer\_c\_9\_1389 & - &  - & -  \\
+  rden\_c\_1\_560 & - &  &   \\
+    rden1994\_c\_1\_356 & - &  &   \\
+    sked\_c\_1\_1556 & - &  &   \\
+    sked\_c\_1\_1767 & -  &  &   \\
+smal\_c\_1\_1545 & -  &  &   \\
+smit\_c\_1\_1759 & -  &  &   \\
+smut\_c\_1\_1468 & +  &  &   \\
+smut\_c\_1\_1548 & +  &  &   \\
+smut\_c\_1\_1794 & + &  &   \\
+smut\_c\_1\_371 & +  &  &   \\
+smut\_c\_1\_836 & +  &  &   \\
+  sot138\_c\_21\_1472 & - &  &   \\
+  sot149\_c\_17\_1639 & - &  &   \\
+    ssal\_c\_18\_1887 & - &  &   \\
+    tmed\_c\_12\_2247 & - &  &   \\
+\end{tabular}
+\caption{\label{tbl:genes}Gene identified using the various strategies outlined. The interpretation is identical
+to that in Table \ref{tbl:groups}. The logistic regression data is not included here, because, like in the grouped data,
+it is a) a completely different set of genes and b) has seemingly no predictive power.}
+\end{center}
+\end{table}
+
+
+
+\bibliographystyle{plainnat}
+\bibliography{/Users/Evan/GitProjects/tex-docs/references}
+
+% If using biblatex
+% \printbibliography
+
+\end{document}
