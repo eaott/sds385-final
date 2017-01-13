@@ -1,4 +1,6 @@
 # LaTeX files
+*.snm
+*.nav
 *.bbl
 *.blg
 *.dvi
